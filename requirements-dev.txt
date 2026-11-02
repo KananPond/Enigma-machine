@@ -1,0 +1,6 @@
+# Development and test tooling (optional).
+# The test suite also runs without any of these:
+#
+#   python -m unittest discover -s tests
+#
+pytest>=8.0

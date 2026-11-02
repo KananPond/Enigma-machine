@@ -1,0 +1,6 @@
+# The simulator runs on the Python standard library only.
+# tkinter (the GUI toolkit) ships with CPython on Windows and macOS.
+#
+#   python -m pip install -r requirements.txt
+#
+# keeps the virtual environment free of third party runtime dependencies.

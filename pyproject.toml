@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "enigma-simulator"
+version = "1.0.0"
+description = "A faithful simulation of the Enigma cipher machine with a desktop GUI"
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+keywords = ["enigma", "cipher", "cryptography", "simulation", "tkinter"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Topic :: Security :: Cryptography",
+    "Topic :: Education",
+]
+dependencies = []
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0"]
+
+[project.gui-scripts]
+enigma = "enigma_gui.app:main"
+
+[tool.setuptools]
+packages = ["enigma", "enigma_gui"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
