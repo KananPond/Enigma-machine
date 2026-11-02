@@ -154,6 +154,15 @@ class EnigmaAppTests(unittest.TestCase):
         self.assertEqual(self.app.machine.plugboard.paired_with("A"), "V")
         self.assertIn("AV", self.app.plug_summary.cget("text"))
 
+    def test_positions_can_be_reset(self):
+        self.app._position_set(2, "Q")
+        self.app.update()
+        self.assertEqual(self.app.machine.positions, "AAQ")
+        self.app._reset_positions()
+        self.app.update()
+        self.assertEqual(self.app.machine.positions, "AAA")
+        self.assertEqual(self.app.rotor_controls[2].position_entry.get(), "A")
+
     def test_duplicate_rotor_swaps(self):
         # "IV" is not in the machine yet, so it is simply fitted
         self.app._rotor_changed(1, "IV")

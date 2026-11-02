@@ -213,6 +213,17 @@ class EnigmaApp(tk.Tk):
             justify="left",
         )
         self.notch_summary.pack(anchor="w", pady=(6, 0))
+        tk.Label(
+            notch_frame,
+            text="窗口位置显示的是当前值，\n加密后会随步进改变。",
+            bg=theme.PANEL,
+            fg=theme.TEXT_FAINT,
+            font=theme.Fonts.SMALL,
+            justify="left",
+        ).pack(anchor="w", pady=(10, 0))
+        self._button(notch_frame, "复位转子位置 (AAA)", self._reset_positions).pack(
+            anchor="w", pady=(10, 0)
+        )
 
     def _build_console(self) -> None:
         console = tk.Frame(self, bg=theme.BG)
@@ -840,6 +851,12 @@ class EnigmaApp(tk.Tk):
         self._keyed_output = []
         self.output_label.configure(text="—")
         self.lamps.clear()
+
+    def _reset_positions(self) -> None:
+        """把三个转子位置复位到 AAA（不改变转子型号与环设定）。"""
+        self.machine.set_positions("AAA")
+        self._home_positions = "AAA"
+        self._refresh()
 
     def _reset_all(self) -> None:
         self.machine = EnigmaMachine.create()
