@@ -5,12 +5,14 @@ Run it with ``python run.py`` (or ``python -m enigma_gui``).
 
 from __future__ import annotations
 
+import time
 import tkinter as tk
-from tkinter import messagebox, ttk
+from tkinter import filedialog, messagebox, ttk
 
 from enigma import EnigmaMachine, Plugboard, PlugboardError
 from enigma.data import ALPHABET
-from enigma.message import format_groups, normalize
+from enigma.message import format_groups, normalize, split_messages
+from enigma.preparation import prepare_text
 
 from . import theme
 from .widgets import Keyboard, LampField, PlugboardWidget, RotorControl, SignalTrace
@@ -18,8 +20,22 @@ from .widgets import Keyboard, LampField, PlugboardWidget, RotorControl, SignalT
 APP_TITLE = "ENIGMA  ·  Wehrmacht Enigma I"
 APP_SUBTITLE = (
     "three rotors · reflector · Steckerbrett · reciprocal cipher  —  "
-    "type on your keyboard or click the keys"
+    "type A-Z on your keyboard or click the keys"
 )
+
+NUMBER_POLICIES = {
+    "auto": "Auto: words / digits",
+    "words": "Words (readable)",
+    "digits": "Digits (exact)",
+}
+
+SPACE_LETTERS = {
+    "auto": "Auto (X/Q)",
+    "X": "X",
+    "Q": "Q",
+}
+
+CHUNK_SIZE = 2000
 
 
 class EnigmaApp(tk.Tk):
@@ -40,6 +56,8 @@ class EnigmaApp(tk.Tk):
             positions=("A", "A", "A"),
         )
         self._keyed_output: list[str] = []
+        self._home_positions = "AAA"
+        self._job: dict | None = None
 
         self._build_header()
         self._build_machine_panel()
@@ -50,15 +68,19 @@ class EnigmaApp(tk.Tk):
         self._refresh()
         self.bind("<KeyPress>", self._on_physical_key)
         self.after(60, self._fit_to_screen)
-        self.after(60, self._focus_canvas)
+        self.after(60, self._focus_window)
 
+    # ------------------------------------------------------------- layout
     def _fit_to_screen(self) -> None:
         """Size the window so that it always fits on the screen."""
-        width = min(1240, max(1000, self.winfo_screenwidth() - 40))
-        height = min(860, max(720, self.winfo_screenheight() - 80))
-        self.geometry(f"{width}x{height}")
+        width = min(1480, max(1000, self.winfo_screenwidth() - 16))
+        height = min(900, max(700, self.winfo_screenheight() - 60))
+        self.geometry(f"{width}x{height}+0+0")
 
-    # ------------------------------------------------------------------ UI
+    def _focus_window(self) -> None:
+        """Make sure the window grabs the focus so typing works right away."""
+        self.focus_set()
+
     def _panel(self, master: tk.Misc, title: str) -> tuple[tk.Frame, tk.Frame]:
         """Create a titled panel frame and return it with its content area."""
         frame = tk.Frame(master, bg=theme.PANEL, highlightbackground=theme.PANEL_LINE,
@@ -166,7 +188,7 @@ class EnigmaApp(tk.Tk):
             rotors_frame.grid_columnconfigure(index, weight=1, minsize=160)
             self.rotor_controls.append(control)
 
-        # --- step hint ---
+        # --- notches ---
         step_frame = tk.Frame(body, bg=theme.PANEL)
         step_frame.grid(row=0, column=2, sticky="nsew", padx=(0, 12), pady=(0, 12))
         tk.Label(
@@ -191,6 +213,7 @@ class EnigmaApp(tk.Tk):
         console.grid(row=2, column=0, sticky="nsew", padx=(22, 10), pady=6)
         self.grid_rowconfigure(2, weight=1)
         self.grid_columnconfigure(0, weight=1)
+        self.grid_columnconfigure(1, weight=0, minsize=460)
 
         lamps_panel, lamps_body = self._panel(console, "lamp field")
         lamps_panel.pack(fill="x")
@@ -222,13 +245,44 @@ class EnigmaApp(tk.Tk):
         self.trace.pack(fill="x", padx=12, pady=(0, 12))
 
     def _build_side_panel(self) -> None:
+        """The right hand column: plugboard, message and batch processing.
+
+        It is scrollable so that everything stays reachable even on small
+        screens.
+        """
         side = tk.Frame(self, bg=theme.BG)
         side.grid(row=2, column=1, sticky="nsew", padx=(10, 22), pady=6)
         side.grid_columnconfigure(0, weight=1)
+        side.grid_rowconfigure(0, weight=1)
+
+        canvas = tk.Canvas(side, bg=theme.BG, highlightthickness=0, bd=0)
+        scrollbar = ttk.Scrollbar(side, orient="vertical", command=canvas.yview)
+        inner = tk.Frame(canvas, bg=theme.BG)
+        window = canvas.create_window((0, 0), window=inner, anchor="nw")
+
+        def _resize(event) -> None:
+            canvas.itemconfigure(window, width=canvas.winfo_width())
+
+        def _scroll_region(event) -> None:
+            canvas.configure(scrollregion=canvas.bbox("all"))
+
+        inner.bind("<Configure>", _scroll_region)
+        canvas.bind("<Configure>", _resize)
+        canvas.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
+        inner.grid_columnconfigure(0, weight=1)
+
+        def _on_wheel(event) -> None:
+            if isinstance(event.widget, (tk.Text, ttk.Combobox)):
+                return
+            canvas.yview_scroll(int(-event.delta / 60), "units")
+
+        canvas.bind_all("<MouseWheel>", _on_wheel)
+        self._side_canvas = canvas
 
         # --- plugboard ---
-        plug_panel, plug_body = self._panel(side, "plugboard (steckerbrett)")
-        plug_panel.grid(row=0, column=0, sticky="ew")
+        plug_panel, plug_body = self._panel(inner, "plugboard (steckerbrett)")
+        plug_panel.grid(row=0, column=0, sticky="ew", pady=(0, 10))
         self.plugboard_widget = PlugboardWidget(plug_body, on_change=self._plug_changed)
         self.plugboard_widget.pack(padx=10)
         plug_actions = tk.Frame(plug_body, bg=theme.PANEL)
@@ -259,9 +313,60 @@ class EnigmaApp(tk.Tk):
         self.plug_summary.pack(side="right")
 
         # --- message ---
-        message_panel, message_body = self._panel(side, "message")
-        message_panel.grid(row=1, column=0, sticky="nsew", pady=(10, 0))
-        side.grid_rowconfigure(1, weight=1)
+        message_panel, message_body = self._panel(inner, "message")
+        message_panel.grid(row=1, column=0, sticky="ew")
+
+        options = tk.Frame(message_body, bg=theme.PANEL)
+        options.pack(fill="x", padx=12, pady=(0, 8))
+
+        numbers_row = tk.Frame(options, bg=theme.PANEL)
+        numbers_row.pack(fill="x")
+        tk.Label(
+            numbers_row, text="Numbers", bg=theme.PANEL, fg=theme.TEXT_FAINT,
+            font=theme.Fonts.SMALL,
+        ).pack(side="left")
+        self.number_policy = ttk.Combobox(
+            numbers_row,
+            values=list(NUMBER_POLICIES.values()),
+            state="readonly",
+            width=20,
+            font=theme.Fonts.SMALL,
+            style="Enigma.TCombobox",
+        )
+        self.number_policy.current(0)
+        self.number_policy.pack(side="left", padx=(4, 0), fill="x", expand=True)
+
+        space_row = tk.Frame(options, bg=theme.PANEL)
+        space_row.pack(fill="x", pady=(4, 0))
+        tk.Label(
+            space_row, text="Space", bg=theme.PANEL, fg=theme.TEXT_FAINT,
+            font=theme.Fonts.SMALL,
+        ).pack(side="left")
+        self.space_letter = ttk.Combobox(
+            space_row,
+            values=list(SPACE_LETTERS.values()),
+            state="readonly",
+            width=9,
+            font=theme.Fonts.SMALL,
+            style="Enigma.TCombobox",
+        )
+        self.space_letter.current(0)
+        self.space_letter.pack(side="left", padx=(4, 10))
+
+        self.join_words = tk.BooleanVar(value=False)
+        tk.Checkbutton(
+            space_row,
+            text="join number words",
+            variable=self.join_words,
+            bg=theme.PANEL,
+            fg=theme.TEXT_DIM,
+            activebackground=theme.PANEL,
+            activeforeground=theme.TEXT,
+            selectcolor=theme.PANEL_HI,
+            font=theme.Fonts.SMALL,
+            highlightthickness=0,
+            bd=0,
+        ).pack(side="left")
 
         tk.Label(
             message_body,
@@ -272,7 +377,7 @@ class EnigmaApp(tk.Tk):
         ).pack(anchor="w", padx=12)
         self.plain_text = tk.Text(
             message_body,
-            height=4,
+            height=3,
             bg=theme.PANEL_HI,
             fg=theme.TEXT,
             insertbackground=theme.AMBER,
@@ -284,6 +389,32 @@ class EnigmaApp(tk.Tk):
         )
         self.plain_text.pack(fill="both", expand=True, padx=12, pady=(2, 8))
 
+        file_row = tk.Frame(message_body, bg=theme.PANEL)
+        file_row.pack(fill="x", padx=12, pady=(0, 8))
+        self._button(file_row, "Open file…", self._open_file).pack(side="left", padx=(0, 6))
+        self._button(file_row, "Save cipher…", self._save_cipher).pack(side="left", padx=(0, 6))
+        self._button(file_row, "Clear", self._clear_message).pack(side="left")
+
+        tk.Label(
+            message_body,
+            text="PREPARED TEXT  (letters that go into the machine)",
+            bg=theme.PANEL,
+            fg=theme.TEXT_FAINT,
+            font=theme.Fonts.SMALL,
+        ).pack(anchor="w", padx=12)
+        self.prepared_text = tk.Text(
+            message_body,
+            height=2,
+            bg=theme.PANEL_HI,
+            fg=theme.CYAN,
+            relief="flat",
+            font=theme.Fonts.MONO,
+            wrap="word",
+            padx=8,
+            pady=6,
+        )
+        self.prepared_text.pack(fill="both", expand=False, padx=12, pady=(2, 8))
+
         tk.Label(
             message_body,
             text="CIPHER TEXT",
@@ -293,7 +424,7 @@ class EnigmaApp(tk.Tk):
         ).pack(anchor="w", padx=12)
         self.cipher_text = tk.Text(
             message_body,
-            height=4,
+            height=3,
             bg=theme.PANEL_HI,
             fg=theme.AMBER,
             relief="flat",
@@ -309,10 +440,48 @@ class EnigmaApp(tk.Tk):
         self._button(buttons, "Encipher / Decipher", self._encrypt_message).pack(
             side="left", padx=(0, 6)
         )
-        self._button(buttons, "Group in fives", self._group_message).pack(
-            side="left", padx=(0, 6)
+        self._button(buttons, "Group in fives", self._group_message).pack(side="left")
+
+        # --- batch ---
+        batch_panel, batch_body = self._panel(inner, "batch processing")
+        batch_panel.grid(row=2, column=0, sticky="ew", pady=(10, 0))
+
+        self.split_messages = tk.BooleanVar(value=False)
+        self.restart_rotors = tk.BooleanVar(value=False)
+        for text, variable in (
+            ("Split on blank lines (one message per block)", self.split_messages),
+            ("Restart rotors for every message", self.restart_rotors),
+        ):
+            tk.Checkbutton(
+                batch_body,
+                text=text,
+                variable=variable,
+                bg=theme.PANEL,
+                fg=theme.TEXT_DIM,
+                activebackground=theme.PANEL,
+                activeforeground=theme.TEXT,
+                selectcolor=theme.PANEL_HI,
+                font=theme.Fonts.SMALL,
+                highlightthickness=0,
+                bd=0,
+                anchor="w",
+            ).pack(fill="x", padx=12, pady=(0, 4))
+
+        self.progress = ttk.Progressbar(
+            batch_body, mode="determinate", maximum=100, length=320
         )
-        self._button(buttons, "Clear", self._clear_message).pack(side="left")
+        self.progress.pack(fill="x", padx=12, pady=(6, 0))
+
+        self.stats_label = tk.Label(
+            batch_body,
+            text="",
+            bg=theme.PANEL,
+            fg=theme.TEXT_FAINT,
+            font=theme.Fonts.SMALL,
+            anchor="w",
+            justify="left",
+        )
+        self.stats_label.pack(fill="x", padx=12, pady=(4, 12))
 
     def _build_status_bar(self) -> None:
         status = tk.Label(
@@ -345,9 +514,26 @@ class EnigmaApp(tk.Tk):
             pady=5,
         )
 
-    def _focus_canvas(self) -> None:
-        """Make sure the keyboard grabs the focus so typing works right away."""
-        self.focus_set()
+    # -------------------------------------------------------------- helpers
+    def _set_text(self, widget: tk.Text, value: str) -> None:
+        widget.config(state="normal")
+        widget.delete("1.0", "end")
+        widget.insert("1.0", value)
+        widget.config(state="disabled")
+
+    def _policy_key(self) -> str:
+        text = self.number_policy.get()
+        for key, label in NUMBER_POLICIES.items():
+            if label == text:
+                return key
+        return "auto"
+
+    def _space_key(self) -> str:
+        text = self.space_letter.get()
+        for key, label in SPACE_LETTERS.items():
+            if label == text:
+                return key
+        return "auto"
 
     # ------------------------------------------------------------- actions
     def _press_key(self, letter: str) -> None:
@@ -357,17 +543,21 @@ class EnigmaApp(tk.Tk):
         self._keyed_output.append(result)
         self.lamps.light(result)
         self.trace.show([(step.stage, step.letter) for step in trace])
-        self.output_label.configure(
-            text=f"{''.join(self._keyed_output[-120:])}"
-        )
+        self.output_label.configure(text="".join(self._keyed_output[-120:]))
         self._refresh()
 
     def _on_physical_key(self, event) -> None:
         """Handle a key pressed on the real keyboard."""
-        if isinstance(event.widget, (tk.Text, ttk.Entry)):
+        if isinstance(event.widget, (tk.Text, ttk.Entry, ttk.Combobox)):
             return
-        character = (event.char or "").upper()
-        if character in ALPHABET and len(character) == 1:
+        character = event.char or ""
+        if not character:
+            # Some keyboard layouts deliver the keysym but no character.
+            keysym = getattr(event, "keysym", "") or ""
+            if len(keysym) == 1:
+                character = keysym
+        character = character.upper()
+        if len(character) == 1 and character in ALPHABET:
             self._press_key(character)
 
     def _rotor_changed(self, index: int, name: str) -> None:
@@ -390,6 +580,7 @@ class EnigmaApp(tk.Tk):
     def _position_changed(self, index: int, delta: int) -> None:
         rotor = self.machine.rotors[index]
         rotor.position = (rotor.position + delta) % 26
+        self._home_positions = self.machine.positions
         self._refresh()
 
     def _reflector_selected(self, _event=None) -> None:
@@ -408,36 +599,144 @@ class EnigmaApp(tk.Tk):
         self.plugboard_widget.clear_pending()
         self._refresh()
 
-    def _encrypt_message(self) -> None:
-        """Encipher (or decipher) the whole plain text field."""
-        text = self.plain_text.get("1.0", "end")
-        letters = normalize(text)
-        if not letters:
+    def _open_file(self) -> None:
+        path = filedialog.askopenfilename(
+            parent=self,
+            title="Open plain text",
+            filetypes=[("Text files", "*.txt"), ("All files", "*.*")],
+        )
+        if not path:
             return
-        cipher = self.machine.encrypt(letters)
-        self.cipher_text.delete("1.0", "end")
-        self.cipher_text.insert("1.0", cipher)
+        try:
+            with open(path, "r", encoding="utf-8", errors="replace") as handle:
+                text = handle.read()
+        except OSError as error:
+            messagebox.showerror("Open file", str(error), parent=self)
+            return
+        self.plain_text.delete("1.0", "end")
+        self.plain_text.insert("1.0", text)
+        self.stats_label.configure(text=f"loaded {len(text)} characters from {path}")
+
+    def _save_cipher(self) -> None:
+        cipher = self.cipher_text.get("1.0", "end").strip()
+        if not cipher:
+            messagebox.showinfo("Save cipher", "There is no cipher text yet.", parent=self)
+            return
+        path = filedialog.asksaveasfilename(
+            parent=self,
+            title="Save cipher text",
+            defaultextension=".txt",
+            filetypes=[("Text files", "*.txt"), ("All files", "*.*")],
+        )
+        if not path:
+            return
+        try:
+            with open(path, "w", encoding="utf-8") as handle:
+                handle.write(cipher + "\n")
+        except OSError as error:
+            messagebox.showerror("Save cipher", str(error), parent=self)
+            return
+        self.stats_label.configure(text=f"cipher text written to {path}")
+
+    def _encrypt_message(self) -> None:
+        """Prepare the plain text and run it through the machine."""
+        raw = self.plain_text.get("1.0", "end")
+        if not raw.strip():
+            return
+
+        blocks = split_messages(raw) if self.split_messages.get() else [raw]
+        prepared = [
+            prepare_text(
+                block,
+                number_policy=self._policy_key(),
+                space_letter=self._space_key(),
+                join_number_words=self.join_words.get(),
+            )
+            for block in blocks
+        ]
+
+        self._set_text(self.prepared_text, "\n\n".join(item.text for item in prepared))
         self._keyed_output = []
         self.output_label.configure(text="")
         self.lamps.clear()
+
+        self._start_job([item.text for item in prepared])
+
+    def _start_job(self, messages: list[str]) -> None:
+        """Encrypt *messages*, keeping the interface responsive."""
+        self._job = {
+            "queue": list(messages),
+            "current": "",
+            "output": [],
+            "total": sum(len(message) for message in messages),
+            "done": 0,
+            "messages": len(messages),
+            "started": time.perf_counter(),
+        }
+        self.progress["value"] = 0
+        self._process_next_chunk()
+
+    def _process_next_chunk(self) -> None:
+        """Encrypt a slice of the current message, then come back for more."""
+        job = self._job
+        if job is None:
+            return
+
+        budget = CHUNK_SIZE
+        while budget > 0:
+            if not job["current"]:
+                if not job["queue"]:
+                    break
+                if self.restart_rotors.get():
+                    self.machine.set_positions(self._home_positions)
+                job["current"] = job["queue"].pop(0)
+                job["output"].append("")
+            take = job["current"][:budget]
+            job["current"] = job["current"][budget:]
+            job["output"][-1] += self.machine.encrypt(take)
+            job["done"] += len(take)
+            budget -= len(take)
+            if job["current"]:
+                break  # give the interface a chance to breathe
+
+        if job["total"]:
+            self.progress["value"] = 100 * job["done"] / job["total"]
+
+        if job["current"] or job["queue"]:
+            self.after(1, self._process_next_chunk)
+        else:
+            self._finish_job()
+
+    def _finish_job(self) -> None:
+        job = self._job or {}
+        self._job = None
+        cipher = "\n\n".join(job.get("output", []))
+        self._set_text(self.cipher_text, cipher)
+
+        elapsed = time.perf_counter() - job.get("started", time.perf_counter())
+        letters = job.get("done", 0)
+        messages = job.get("messages", 0)
+        self.stats_label.configure(
+            text=(
+                f"{letters} letters · {messages} message"
+                f"{'s' if messages != 1 else ''} · {elapsed:.2f} s"
+            )
+        )
+        self.progress["value"] = 100
         self._refresh()
 
     def _group_message(self) -> None:
         """Show the cipher text in groups of five, as it was transmitted."""
         cipher = self.cipher_text.get("1.0", "end").strip()
         if not cipher:
-            plain = normalize(self.plain_text.get("1.0", "end"))
-            if not plain:
-                return
-            cipher = self.machine.encrypt(plain)
-            self.cipher_text.delete("1.0", "end")
-            self.cipher_text.insert("1.0", cipher)
-        self.cipher_text.delete("1.0", "end")
-        self.cipher_text.insert("1.0", format_groups(cipher))
+            return
+        grouped = "\n\n".join(format_groups(part) for part in cipher.split("\n\n"))
+        self._set_text(self.cipher_text, grouped)
 
     def _clear_message(self) -> None:
         self.plain_text.delete("1.0", "end")
-        self.cipher_text.delete("1.0", "end")
+        self._set_text(self.prepared_text, "")
+        self._set_text(self.cipher_text, "")
         self._keyed_output = []
         self.output_label.configure(text="—")
         self.lamps.clear()
@@ -445,6 +744,7 @@ class EnigmaApp(tk.Tk):
     def _reset_all(self) -> None:
         self.machine = EnigmaMachine.create()
         self._keyed_output = []
+        self._home_positions = "AAA"
         self.output_label.configure(text="—")
         self.lamps.clear()
         self.plugboard_widget.clear_pending()
@@ -463,19 +763,19 @@ class EnigmaApp(tk.Tk):
 
         plugged = [letter for pair in machine.plugboard.pairs for letter in pair]
         self.plugboard_widget.set_plugged(plugged)
-        self.plug_summary.configure(
-            text=machine.plugboard.describe() or "no cables"
-        )
+        self.plug_summary.configure(text=machine.plugboard.describe() or "no cables")
 
-        notches = "  ".join(
-            f"{rotor.spec.name}:{'/'.join(rotor.spec.turnover)}" for rotor in machine.rotors
+        self.notch_summary.configure(
+            text="  ".join(
+                f"{rotor.spec.name}:{'/'.join(rotor.spec.turnover)}"
+                for rotor in machine.rotors
+            )
         )
-        self.notch_summary.configure(text=notches)
 
         self.status_label.configure(
             text=(
                 f"  {machine.describe()}   |   position {machine.positions}   |   "
-                f"lamp {self.lamps._lit or '—'}"
+                f"lamp {self.lamps._lit or '—'}   |   type A-Z to press the keys"
             )
         )
 

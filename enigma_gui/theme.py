@@ -85,11 +85,14 @@ def build_styles(root: tk.Misc) -> ttk.Style:
         lightcolor=PANEL_LINE,
         darkcolor=PANEL_LINE,
     )
-    style.configure(
-        "Enigma.TScrollbar",
-        troughcolor=PANEL,
-        background=PANEL_HI,
-        arrowcolor=TEXT_DIM,
-        bordercolor=PANEL,
-    )
+    for name in ("Vertical.TScrollbar", "Horizontal.TScrollbar"):
+        style.configure(
+            name,
+            troughcolor=PANEL,
+            background=PANEL_HI,
+            arrowcolor=TEXT_DIM,
+            bordercolor=PANEL,
+            lightcolor=PANEL_HI,
+            darkcolor=PANEL_HI,
+        )
     return style

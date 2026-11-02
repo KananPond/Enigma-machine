@@ -17,10 +17,12 @@
 | --- | --- |
 | 完整机器模型 | 三转子（I–VIII）+ 反射器（A/B/C）+ 接线板，电气路径逐跳可追溯 |
 | 真实步进规则 | 按键前步进、双步进异常、转子缺口（turnover notch）触发 |
+| **键盘直接输入** | 直接敲 A–Z 即按键；输入框内打字则正常录入文本 |
+| **长文本 / 批量加密** | 打开 `.txt`、保存密文、按空行拆分成多条报文、逐条重新起转子、进度条与统计 |
+| **报文准备** | 数字自动改写为英文文字或逐位拼写，空格自动替换为 X 或 Q，并显示"准备后"的文本 |
 | 交互式 GUI | 灯板、键盘、三个转子控制面板、接线板编辑器、报文加解密 |
 | 信号路径显示 | 实时显示电流经过 插头板 → 右转子 → 中转子 → 左转子 → 反射器 → 返回 的每一跳 |
-| 报文分组 | 按历史惯例可把密文按 5 个字母分组显示 |
-| 参考向量测试 | 26 个单元测试，覆盖公开的历史参考向量 |
+| 参考向量测试 | 74 个单元测试，覆盖公开的历史参考向量与界面交互 |
 
 ## 快速开始
 
@@ -62,10 +64,51 @@ pytest
   * 选择一个已经在机器中的转子时，两个转子会**自动互换**（同一转子不能装两次）。
 * **插头板（Steckerbrett）**：先点一个字母，再点第二个字母即接一根电缆；再次点击已接线的字母可拔掉电缆。
   真实机器最多 10 根电缆，且同一字母不能重复使用。
-* **灯板 / 键盘**：点击键盘按键，或直接用**真实键盘**敲字母，机器即会步进并点亮对应灯泡。
-* **报文面板**：输入明文 → `Encipher / Decipher`。由于恩尼格码密码是**互反的**，
-  用相同设置解密密文会得到原文；`Group in fives` 按五字母分组显示。
+* **灯板 / 键盘**：**直接用真实键盘敲 A–Z 就是按键**（窗口获得焦点时），也可以点击屏幕上的键盘按键；
+  机器随即步进并点亮对应灯泡，同时把结果追加到 `KEYED OUTPUT`。
+  在报文输入框里打字则只是正常录入文本，不会触发按键。
+* **报文面板**
+  * *PLAIN TEXT*：粘贴或用 **Open file…** 载入 `.txt`；**Save cipher…** 把密文写回文件。
+  * *PREPARED TEXT*：显示**真正送进机器的字母**（数字已改写、空格已替换）。
+  * *CIPHER TEXT*：密文，可按 `Group in fives` 五字母分组。
+  * 由于恩尼格码密码**互反**，同一设置下 `Encipher / Decipher` 既可加密也可解密。
+* **批量处理**（BATCH PROCESSING 面板）
+  * `Split on blank lines`：按空行把文本拆成多条报文，逐条加密。
+  * `Restart rotors for every message`：每条报文前把转子复位到当前设置位置（模拟"每条报文换新密钥"）。
+  * 长文本按每 2000 字母分块处理，界面不卡死，并显示进度条与统计（字母数、报文数、耗时）。
 * **信号路径**：显示上一次按键时电流在机器内部的完整路径。
+
+## 报文准备：数字与空格
+
+恩尼格码只认识 26 个字母，所以真实电文里数字要先写成字母、空格要用别的字母代替。
+
+### 数字
+
+界面上的 **Numbers** 下拉框有三种策略：
+
+| 策略 | 规则 | 例子 |
+| --- | --- | --- |
+| `Auto: words / digits`（默认） | 1–4 位数字按可读文字改写；5 位及以上的数字串视为必须精确保留的编号，逐位拼写 | `1932` → `NINETEEN THIRTY TWO`，`48152` → `FOUREIGHTONEFIVETWO` |
+| `Words (readable)` | 所有数字都写成英文文字 | `1932` → `NINETEEN THIRTY TWO` |
+| `Digits (exact)` | 所有数字都逐位拼写并直接拼接 | `1932` → `ONENINETHREETWO` |
+
+四位数字按**英式年份读法**（`1932` = *nineteen thirty-two*，`2001` = *twenty-oh-one*）；
+带千位分隔符的数字（`1,234`）按数量读作 `ONE THOUSAND TWO HUNDRED THIRTY FOUR`。
+勾选 **join number words** 可把数字的文字连写（`NINETEENTHIRTYTWO`），这是德军当时的常见写法。
+
+### 空格
+
+**Space** 下拉框决定空格用什么字母代替：
+
+* `Auto (X/Q)`（默认）：统计**报文准备后**文本里 `Q` 与 `X` 出现的次数，**用出现得少的那个**作空格替代字母
+  （平局时用 `X`）。这样替代字母不会与报文本身混淆。
+  例：文本里有 3 个 `X`、0 个 `Q` → 用 `Q` 代空格。
+* `X` / `Q`：强制指定。
+
+> 数字文字里的空格同样按此规则替换，因此 `1932` 在默认设置下会变成 `NINETEENXTHIRTYXTWO`；
+> 勾选 **join number words** 则得到 `NINETEENTHIRTYTWO`。
+
+其余标点符号在送入机器前一律丢弃。
 
 ## 机器模型
 
@@ -97,6 +140,9 @@ pytest
 | 加密后再解密（互反性） | `ATTACKATDAWN` | 还原原文 |
 | Wikipedia 的标准步进序列 | — | `ADU → ADV → AEW → BFX → BFY` |
 
+此外还覆盖：数字改写规则、空格替代规则、插头板约束、以及界面交互
+（键盘按键、报文准备、批量拆分、长文本分块处理）。
+
 运行测试：
 
 ```powershell
@@ -112,12 +158,14 @@ Enigma machine/
 │   ├── data.py             # 转子接线、缺口、反射器接线表
 │   ├── plugboard.py        # Steckerbrett（插头板）
 │   ├── machine.py          # 机器模型、步进规则、加解密
-│   └── message.py          # 报文规范化与五字母分组
+│   ├── numbers.py          # 数字改写：英文文字 / 逐位拼写
+│   ├── preparation.py      # 报文准备：数字改写 + 空格替代（X/Q）
+│   └── message.py          # 报文规范化、五字母分组、按空行拆分
 ├── enigma_gui/             # Tkinter 桌面界面
 │   ├── theme.py            # 配色与字体
 │   ├── widgets.py          # 灯板、键盘、转子面板、插头板、信号路径
 │   └── app.py              # 主窗口
-├── tests/                  # unittest 测试（参考向量）
+├── tests/                  # unittest 测试（参考向量 + 界面交互）
 ├── docs/screenshot.png
 ├── run.py                  # 程序入口
 ├── requirements.txt        # 运行时依赖（空：仅标准库）
@@ -128,7 +176,7 @@ Enigma machine/
 核心库可以脱离界面单独使用：
 
 ```python
-from enigma import EnigmaMachine, Plugboard
+from enigma import EnigmaMachine, Plugboard, prepare_text
 
 # 参考向量设置：转子 I-II-III，反射器 B，无接线板，起始 AAA
 eng = EnigmaMachine.create(
@@ -139,6 +187,11 @@ eng = EnigmaMachine.create(
     positions=("A", "A", "A"),
 )
 print(eng.encrypt("AAAAA"))   # -> BDZGO
+
+# 报文准备：数字改写 + 空格替代
+prepared = prepare_text("ATTACK AT 1932", number_policy="auto")
+print(prepared.space_letter)  # -> X（文本里 Q 比 X 少）
+print(prepared.text)          # -> ATTACKXATXNINETEENXTHIRTYXTWO
 
 # 带接线板的日常设置
 eng = EnigmaMachine.create(

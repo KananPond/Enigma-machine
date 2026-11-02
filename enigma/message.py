@@ -26,3 +26,24 @@ def group(text: str, size: int = 5) -> list[str]:
 def format_groups(text: str, size: int = 5, separator: str = " ") -> str:
     """Return *text* as space separated groups of *size* letters."""
     return separator.join(group(text, size))
+
+
+def split_messages(text: str) -> list[str]:
+    """Split a text into separate messages.
+
+    Messages are separated by one or more blank lines, which is how a file of
+    messages is usually laid out.  Empty messages are dropped.
+    """
+    messages: list[str] = []
+    current: list[str] = []
+
+    for line in text.replace("\r\n", "\n").split("\n"):
+        if line.strip():
+            current.append(line)
+        elif current:
+            messages.append("\n".join(current))
+            current = []
+    if current:
+        messages.append("\n".join(current))
+
+    return messages

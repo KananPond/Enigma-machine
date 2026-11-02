@@ -28,7 +28,7 @@ class LampField(tk.Frame):
                     bg=theme.PANEL_HI,
                     fg=theme.TEXT_FAINT,
                     font=theme.Fonts.LAMP,
-                    width=3,
+                    width=2,
                     height=1,
                     relief="flat",
                     bd=0,
@@ -254,25 +254,10 @@ class PlugboardWidget(tk.Frame):
         self._buttons: dict[str, tk.Button] = {}
         self._pending: str | None = None
 
-        tk.Label(
-            self,
-            text=(
-                "Click a letter, then a second one, to run\n"
-                "a cable between them.  Click a plugged letter\n"
-                "again to remove its cable.\n\n"
-                "At most ten cables, no letter twice."
-            ),
-            bg=theme.PANEL,
-            fg=theme.TEXT_FAINT,
-            font=theme.Fonts.SMALL,
-            justify="left",
-            anchor="nw",
-        ).pack(side="left", padx=(0, 18), pady=4)
-
         grid = tk.Frame(self, bg=theme.PANEL)
         grid.pack(side="left", anchor="n")
         for index, letter in enumerate(ALPHABET):
-            row, column = divmod(index, 6)
+            row, column = divmod(index, 5)
             button = tk.Button(
                 grid,
                 text=letter,
@@ -289,6 +274,22 @@ class PlugboardWidget(tk.Frame):
             )
             button.grid(row=row, column=column, padx=1, pady=1)
             self._buttons[letter] = button
+
+        tk.Label(
+            self,
+            text=(
+                "Click a letter, then a second one,\n"
+                "to run a cable between them.\n"
+                "Click a plugged letter again to\n"
+                "remove its cable.\n\n"
+                "At most ten cables, no letter twice."
+            ),
+            bg=theme.PANEL,
+            fg=theme.TEXT_FAINT,
+            font=theme.Fonts.SMALL,
+            justify="left",
+            anchor="nw",
+        ).pack(side="left", padx=(16, 0), pady=4)
 
     def _click(self, letter: str) -> None:
         if self._pending is None:
