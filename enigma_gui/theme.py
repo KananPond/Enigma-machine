@@ -41,16 +41,16 @@ def pick_font(family: str, size: int, weight: str = "normal") -> tuple[str, int,
 class Fonts:
     """Font tuples used throughout the application."""
 
-    TITLE = ("Consolas", 22, "bold")
-    SUBTITLE = ("Consolas", 10)
-    SECTION = ("Consolas", 10, "bold")
-    LETTER = ("Consolas", 13, "bold")
-    LETTER_BIG = ("Consolas", 22, "bold")
-    LAMP = ("Consolas", 12, "bold")
-    KEY = ("Consolas", 12, "bold")
-    MONO = ("Consolas", 11)
-    SMALL = ("Consolas", 9)
-    STATUS = ("Consolas", 10)
+    TITLE = ("Microsoft YaHei UI", 22, "bold")
+    SUBTITLE = ("Microsoft YaHei UI", 10)
+    SECTION = ("Microsoft YaHei UI", 11, "bold")
+    LETTER = ("Consolas", 14, "bold")
+    LETTER_BIG = ("Consolas", 20, "bold")
+    LAMP = ("Consolas", 13, "bold")
+    KEY = ("Consolas", 14, "bold")
+    MONO = ("Consolas", 12)
+    SMALL = ("Microsoft YaHei UI", 10)
+    STATUS = ("Microsoft YaHei UI", 10)
 
 
 def build_styles(root: tk.Misc) -> ttk.Style:

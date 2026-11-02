@@ -1,4 +1,4 @@
-"""Reusable widgets for the Enigma desktop application."""
+"""可复用的界面控件（中文界面）。"""
 
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
 
 
 class LampField(tk.Frame):
-    """The 26 lamps of the Enigma lamp field."""
+    """恩尼格码的 26 个灯泡。"""
 
     def __init__(self, master: tk.Misc, **kwargs) -> None:
         super().__init__(master, bg=theme.PANEL, **kwargs)
@@ -36,8 +36,8 @@ class LampField(tk.Frame):
                 lamp.grid(
                     row=row_index,
                     column=2 * key_index + row_index,
-                    padx=2,
-                    pady=2,
+                    padx=3,
+                    pady=3,
                     sticky="nsew",
                 )
                 self._lamps[letter] = lamp
@@ -46,7 +46,7 @@ class LampField(tk.Frame):
             self.grid_columnconfigure(column, weight=1)
 
     def light(self, letter: str) -> None:
-        """Light the lamp of *letter* and switch off all others."""
+        """点亮 *letter* 对应的灯泡，并熄灭其它灯泡。"""
         self.clear()
         lamp = self._lamps.get(letter)
         if lamp is not None:
@@ -60,7 +60,7 @@ class LampField(tk.Frame):
 
 
 class Keyboard(tk.Frame):
-    """The 26 keys of the Enigma keyboard."""
+    """恩尼格码的 26 个按键。"""
 
     def __init__(
         self,
@@ -90,12 +90,13 @@ class Keyboard(tk.Frame):
                     highlightcolor=theme.AMBER,
                     cursor="hand2",
                     width=3,
+                    pady=4,
                 )
                 key.grid(
                     row=row_index,
                     column=2 * key_index + row_index,
-                    padx=2,
-                    pady=2,
+                    padx=3,
+                    pady=3,
                     sticky="nsew",
                 )
                 self._keys[letter] = key
@@ -104,8 +105,61 @@ class Keyboard(tk.Frame):
             self.grid_columnconfigure(column, weight=1)
 
 
+class LetterEntry(tk.Entry):
+    """只接受一个字母的输入框，用于环设定与窗口位置。"""
+
+    def __init__(
+        self,
+        master: tk.Misc,
+        color: str,
+        font,
+        on_commit: Callable[[str], None],
+        **kwargs,
+    ) -> None:
+        super().__init__(
+            master,
+            width=3,
+            font=font,
+            justify="center",
+            bg=theme.PANEL_HI,
+            fg=color,
+            insertbackground=color,
+            relief="flat",
+            bd=0,
+            highlightthickness=1,
+            highlightbackground=theme.PANEL_LINE,
+            highlightcolor=color,
+            **kwargs,
+        )
+        self._on_commit = on_commit
+        self._current = "A"
+        self.bind("<Return>", self._commit)
+        self.bind("<FocusOut>", self._commit)
+        self.bind("<KeyRelease>", self._uppercase)
+
+    def _uppercase(self, _event=None) -> None:
+        text = self.get().upper()
+        if text != self.get():
+            self.delete(0, "end")
+            self.insert(0, text)
+
+    def _commit(self, _event=None) -> None:
+        text = self.get().strip().upper()
+        if len(text) == 1 and text in ALPHABET:
+            self._current = text
+            self._on_commit(text)
+        else:
+            self.set(self._current)
+
+    def set(self, letter: str) -> None:
+        """设置当前显示的字母（不会触发回调）。"""
+        self._current = letter
+        self.delete(0, "end")
+        self.insert(0, letter)
+
+
 class RotorControl(tk.Frame):
-    """Settings for one rotor: type, ring setting, position and notch lamp."""
+    """单个转子的设置：型号、环设定、窗口位置与缺口指示。"""
 
     def __init__(
         self,
@@ -114,12 +168,16 @@ class RotorControl(tk.Frame):
         on_rotor_change: Callable[[str], None],
         on_ring_change: Callable[[int], None],
         on_position_change: Callable[[int], None],
+        on_ring_set: Callable[[str], None] | None = None,
+        on_position_set: Callable[[str], None] | None = None,
         **kwargs,
     ) -> None:
         super().__init__(master, bg=theme.PANEL, **kwargs)
         self._on_rotor_change = on_rotor_change
         self._on_ring_change = on_ring_change
         self._on_position_change = on_position_change
+        self._on_ring_set = on_ring_set or (lambda letter: None)
+        self._on_position_set = on_position_set or (lambda letter: None)
 
         tk.Label(
             self,
@@ -137,58 +195,48 @@ class RotorControl(tk.Frame):
             font=theme.Fonts.MONO,
             style="Enigma.TCombobox",
         )
-        self.rotor_box.grid(row=1, column=0, columnspan=3, sticky="ew")
+        self.rotor_box.grid(row=1, column=0, columnspan=3, sticky="ew", pady=(0, 4))
         self.rotor_box.bind("<<ComboboxSelected>>", self._rotor_selected)
 
-        # ring setting
+        # 环设定
         tk.Label(
-            self, text="Ring", bg=theme.PANEL, fg=theme.TEXT_FAINT, font=theme.Fonts.SMALL
+            self, text="环设定", bg=theme.PANEL, fg=theme.TEXT_FAINT,
+            font=theme.Fonts.SMALL,
         ).grid(row=2, column=0, sticky="w", pady=(6, 0))
-        self.ring_label = tk.Label(
-            self,
-            text="A",
-            bg=theme.PANEL_HI,
-            fg=theme.CYAN,
-            font=theme.Fonts.LETTER,
-            width=3,
+        self.ring_entry = LetterEntry(
+            self, theme.CYAN, theme.Fonts.LETTER, self._on_ring_set
         )
-        self.ring_label.grid(row=3, column=0, sticky="ew", padx=(0, 4))
-        self._spinner(self.ring_label, self._on_ring_change, row=3, column=1)
+        self.ring_entry.grid(row=3, column=0, sticky="ew", padx=(0, 6), pady=(2, 0))
+        self._spinner(self._on_ring_change, row=3, column=1)
 
-        # position
+        # 窗口位置
         tk.Label(
-            self, text="Position", bg=theme.PANEL, fg=theme.TEXT_FAINT, font=theme.Fonts.SMALL
+            self, text="窗口位置", bg=theme.PANEL, fg=theme.TEXT_FAINT,
+            font=theme.Fonts.SMALL,
         ).grid(row=4, column=0, sticky="w", pady=(6, 0))
-        self.position_label = tk.Label(
-            self,
-            text="A",
-            bg=theme.PANEL_HI,
-            fg=theme.AMBER,
-            font=theme.Fonts.LETTER_BIG,
-            width=3,
+        self.position_entry = LetterEntry(
+            self, theme.AMBER, theme.Fonts.LETTER_BIG, self._on_position_set
         )
-        self.position_label.grid(row=5, column=0, sticky="ew", padx=(0, 4))
-        self._spinner(self.position_label, self._on_position_change, row=5, column=1)
+        self.position_entry.grid(row=5, column=0, sticky="ew", padx=(0, 6), pady=(2, 0))
+        self._spinner(self._on_position_change, row=5, column=1)
 
-        # turnover notch indicator
+        # 缺口指示
         self.notch_lamp = tk.Label(
             self,
-            text="NOTCH",
+            text="缺口",
             bg=theme.PANEL,
             fg=theme.TEXT_FAINT,
             font=theme.Fonts.SMALL,
             anchor="e",
         )
-        self.notch_lamp.grid(row=6, column=0, columnspan=3, sticky="e", pady=(4, 0))
+        self.notch_lamp.grid(row=6, column=0, columnspan=3, sticky="e", pady=(6, 0))
 
         self.grid_columnconfigure(0, weight=1)
         self.grid_columnconfigure(2, weight=1)
 
     # ------------------------------------------------------------- helpers
-    def _spinner(
-        self, target: tk.Label, callback: Callable[[int], None], row: int, column: int
-    ) -> None:
-        """Build the little ▲/▼ buttons that step a value by one."""
+    def _spinner(self, callback: Callable[[int], None], row: int, column: int) -> None:
+        """构建上下微调按钮。"""
         frame = tk.Frame(self, bg=theme.PANEL)
         frame.grid(row=row, column=column, sticky="w")
         tk.Button(
@@ -197,27 +245,29 @@ class RotorControl(tk.Frame):
             command=lambda: callback(1),
             bg=theme.KEY_BG,
             fg=theme.TEXT_DIM,
-            activebackground=theme.KEY_ACTIVE,
-            activeforeground=theme.AMBER,
+            activebackground=theme.AMBER,
+            activeforeground=theme.BG,
             relief="flat",
             bd=0,
-            width=2,
+            width=3,
             cursor="hand2",
-            font=("Consolas", 7),
-        ).pack(side="left", fill="x", expand=True)
+            font=("Consolas", 9),
+            pady=2,
+        ).pack(side="left", fill="x", expand=True, padx=(0, 2))
         tk.Button(
             frame,
             text="▼",
             command=lambda: callback(-1),
             bg=theme.KEY_BG,
             fg=theme.TEXT_DIM,
-            activebackground=theme.KEY_ACTIVE,
-            activeforeground=theme.AMBER,
+            activebackground=theme.AMBER,
+            activeforeground=theme.BG,
             relief="flat",
             bd=0,
-            width=2,
+            width=3,
             cursor="hand2",
-            font=("Consolas", 7),
+            font=("Consolas", 9),
+            pady=2,
         ).pack(side="left", fill="x", expand=True)
 
     def _rotor_selected(self, _event=None) -> None:
@@ -228,10 +278,10 @@ class RotorControl(tk.Frame):
         self.rotor_box.set(name)
 
     def set_ring(self, letter: str) -> None:
-        self.ring_label.configure(text=letter)
+        self.ring_entry.set(letter)
 
     def set_position(self, letter: str) -> None:
-        self.position_label.configure(text=letter)
+        self.position_entry.set(letter)
 
     def set_notch_active(self, active: bool) -> None:
         self.notch_lamp.configure(
@@ -241,7 +291,7 @@ class RotorControl(tk.Frame):
 
 
 class PlugboardWidget(tk.Frame):
-    """The Steckerbrett: click two letters to plug a cable between them."""
+    """接线板：点击两个字母即接一根电缆。"""
 
     def __init__(
         self,
@@ -272,17 +322,16 @@ class PlugboardWidget(tk.Frame):
                 font=theme.Fonts.SMALL,
                 cursor="hand2",
             )
-            button.grid(row=row, column=column, padx=1, pady=1)
+            button.grid(row=row, column=column, padx=2, pady=2)
             self._buttons[letter] = button
 
         tk.Label(
             self,
             text=(
-                "Click a letter, then a second one,\n"
-                "to run a cable between them.\n"
-                "Click a plugged letter again to\n"
-                "remove its cable.\n\n"
-                "At most ten cables, no letter twice."
+                "点击一个字母，再点另一个，\n"
+                "即可接上一根电缆。\n"
+                "再次点击已接线的字母可拔掉。\n\n"
+                "最多 10 根，同一字母只能用一次。"
             ),
             bg=theme.PANEL,
             fg=theme.TEXT_FAINT,
@@ -307,7 +356,7 @@ class PlugboardWidget(tk.Frame):
                 button.configure(bg=theme.PLUG_SELECT, fg=theme.BG)
 
     def set_plugged(self, plugged: Iterable[str]) -> None:
-        """Mark the given letters as plugged in."""
+        """把已接线的字母标记出来。"""
         plugged = set(plugged)
         for letter, button in self._buttons.items():
             if letter in plugged:
@@ -321,7 +370,7 @@ class PlugboardWidget(tk.Frame):
 
 
 class SignalTrace(tk.Frame):
-    """Shows the path the current takes through the machine."""
+    """显示电流在机器内部的走向。"""
 
     def __init__(self, master: tk.Misc, **kwargs) -> None:
         super().__init__(master, bg=theme.PANEL, **kwargs)
@@ -333,9 +382,9 @@ class SignalTrace(tk.Frame):
             font=theme.Fonts.MONO,
             anchor="w",
             justify="left",
-            wraplength=320,
-            padx=8,
-            pady=6,
+            wraplength=640,
+            padx=10,
+            pady=8,
         )
         self._label.pack(fill="x")
 

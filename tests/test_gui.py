@@ -138,7 +138,7 @@ class EnigmaAppTests(unittest.TestCase):
         cipher = self.app.cipher_text.get("1.0", "end").strip()
         # 2000 times "ATTACK" plus the space that stands in for each blank
         self.assertEqual(len(cipher), 14000)
-        self.assertIn("letters", self.app.stats_label.cget("text"))
+        self.assertIn("字母", self.app.stats_label.cget("text"))
 
     def test_group_in_fives(self):
         self.app.plain_text.insert("1.0", "ATTACKATDAWN")
@@ -163,6 +163,59 @@ class EnigmaAppTests(unittest.TestCase):
         self.app._rotor_changed(0, "IV")
         self.app.update()
         self.assertEqual(self.app.machine.rotor_names, ("IV", "I", "III"))
+
+    # ------------------------------------------------------- 便于操作的接口
+    def test_ring_setting_can_be_typed(self):
+        self.app._ring_set(1, "L")
+        self.app.update()
+        self.assertEqual(self.app.machine.ring_settings, "ALA")
+        self.assertEqual(self.app.rotor_controls[1].ring_entry.get(), "L")
+
+    def test_position_can_be_typed(self):
+        self.app._position_set(2, "Q")
+        self.app.update()
+        self.assertEqual(self.app.machine.positions, "AAQ")
+        self.assertEqual(self.app.rotor_controls[2].position_entry.get(), "Q")
+
+    def test_plugboard_pairs_can_be_typed(self):
+        self.app.plug_entry.insert(0, "AV BS")
+        self.app._apply_plug_text()
+        self.app.update()
+        self.assertEqual(self.app.machine.plugboard.describe(), "AV BS")
+        self.assertEqual(self.app.machine.plugboard.paired_with("A"), "V")
+
+    def test_plugboard_entry_shows_the_current_wiring(self):
+        self.app._plug_changed("A", "V")
+        self.app.update()
+        self.assertEqual(self.app.plug_entry.get(), "AV")
+
+    def test_help_window_opens(self):
+        import tkinter as tk
+
+        self.app._show_help()
+        self.app.update()
+        windows = [
+            child
+            for child in self.app.winfo_children()
+            if isinstance(child, tk.Toplevel)
+        ]
+        self.assertTrue(windows)
+        for window in windows:
+            window.destroy()
+
+    def test_interface_is_in_chinese(self):
+        titles = []
+        for widget in self.app.winfo_children():
+            pass
+        # the machine settings panel carries a Chinese title
+        self.assertIn(
+            "反射器",
+            " ".join(
+                str(widget.cget("text"))
+                for widget in self.app.winfo_children()
+                if "text" in widget.keys()
+            ),
+        )
 
 
 if __name__ == "__main__":
