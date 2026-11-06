@@ -1,98 +1,185 @@
-"""Colours, fonts and widget styling for the Enigma GUI."""
+"""Colours, fonts and small drawing helpers shared by the interface.
+
+The look is meant to feel like a piece of equipment: graphite panels, brass
+lettering, a warm lamp.  Everything is drawn with plain Tk primitives - no
+images, no external toolkit - so the machine starts on any Windows box with
+nothing installed.
+"""
 
 from __future__ import annotations
 
 import tkinter as tk
-from tkinter import ttk
+from tkinter import font as tkfont
 
-# ---------------------------------------------------------------- palette
-BG = "#12161f"
-PANEL = "#1b212c"
-PANEL_HI = "#232b38"
-PANEL_LINE = "#2e3746"
+# ------------------------------------------------------------------ palette
+BG = "#08090c"
+BG_HEADER = "#0d0f14"
+PANEL = "#12151b"
+PANEL_ALT = "#171b22"
+PANEL_DEEP = "#0b0d11"
+LINE = "#232833"
+LINE_SOFT = "#1a1e26"
+LINE_STRONG = "#333b48"
 
-TEXT = "#e7ebf2"
-TEXT_DIM = "#8b95a8"
-TEXT_FAINT = "#5d6779"
+TEXT = "#e9ecf1"
+TEXT_SOFT = "#b9c0cd"
+MUTED = "#858e9e"
+FAINT = "#5a6272"
 
-AMBER = "#f2b134"
-AMBER_SOFT = "#7a5a1c"
-AMBER_DIM = "#3d3115"
+BRASS = "#d3a955"
+BRASS_DIM = "#8d7031"
+AMBER = "#ffb85c"
+AMBER_DIM = "#7a5622"
+GLOW = "#3a2a12"
 
-CYAN = "#4cc9f0"
-CYAN_DIM = "#22414f"
-GREEN = "#57cc99"
+TEAL = "#58c8bf"
+ROSE = "#e2685f"
+GREEN = "#6fcf8f"
 
-KEY_BG = "#232b38"
-KEY_ACTIVE = "#38445a"
-KEY_BORDER = "#39435a"
+CABLE_COLORS = (
+    "#e0b464", "#6fc7bd", "#e08a72", "#9db4e0", "#c894d8",
+    "#8fce8a", "#e0c46a", "#7fb2d8", "#d69ab4", "#a9c47f",
+)
 
-PLUG_BG = "#1f2733"
-PLUG_SELECT = "#4cc9f0"
+#: Typeface for the machine lettering, in order of preference.
+_MONO_CANDIDATES = ("Cascadia Mono", "Consolas", "DejaVu Sans Mono", "Courier New")
+_UI_CANDIDATES = ("Microsoft YaHei UI", "Microsoft YaHei", "Segoe UI", "TkDefaultFont")
 
-RED = "#e05561"
 
-
-def pick_font(family: str, size: int, weight: str = "normal") -> tuple[str, int, str]:
-    """Return a font tuple, falling back to the default family."""
-    return (family, size, weight)
+def _pick(candidates: tuple[str, ...], fallback: str = "TkDefaultFont") -> str:
+    try:
+        available = set(tkfont.families())
+    except tk.TclError:  # pragma: no cover - only before a root exists
+        return fallback
+    for name in candidates:
+        if name in available:
+            return name
+    return fallback
 
 
 class Fonts:
-    """Font tuples used throughout the application."""
+    """The handful of fonts the interface uses, resolved once."""
 
-    TITLE = ("Microsoft YaHei UI", 22, "bold")
-    SUBTITLE = ("Microsoft YaHei UI", 10)
-    SECTION = ("Microsoft YaHei UI", 11, "bold")
-    LETTER = ("Consolas", 14, "bold")
-    LETTER_BIG = ("Consolas", 20, "bold")
-    LAMP = ("Consolas", 13, "bold")
-    KEY = ("Consolas", 14, "bold")
-    MONO = ("Consolas", 12)
-    SMALL = ("Microsoft YaHei UI", 10)
-    STATUS = ("Microsoft YaHei UI", 10)
+    def __init__(self) -> None:
+        self.mono_family = _pick(_MONO_CANDIDATES)
+        self.ui_family = _pick(_UI_CANDIDATES)
+
+    def mono(self, size: int, weight: str = "normal") -> tuple[str, int, str]:
+        return (self.mono_family, size, weight)
+
+    def ui(self, size: int, weight: str = "normal") -> tuple[str, int, str]:
+        return (self.ui_family, size, weight)
+
+    # named styles -------------------------------------------------------
+    @property
+    def brand(self) -> tuple[str, int, str]:
+        return self.mono(17, "bold")
+
+    @property
+    def title(self) -> tuple[str, int, str]:
+        return self.ui(9, "bold")
+
+    @property
+    def body(self) -> tuple[str, int, str]:
+        return self.ui(9)
+
+    @property
+    def small(self) -> tuple[str, int, str]:
+        return self.ui(8)
+
+    @property
+    def tiny(self) -> tuple[str, int, str]:
+        return self.ui(7)
+
+    @property
+    def letter(self) -> tuple[str, int, str]:
+        return self.mono(20, "bold")
+
+    @property
+    def letter_big(self) -> tuple[str, int, str]:
+        return self.mono(24, "bold")
+
+    @property
+    def keycap(self) -> tuple[str, int, str]:
+        return self.mono(10, "bold")
 
 
-def build_styles(root: tk.Misc) -> ttk.Style:
-    """Create the ttk styles used by the application."""
-    style = ttk.Style(root)
-    style.theme_use("clam")
+# ------------------------------------------------------------------- shapes
+def round_rect(
+    canvas: tk.Canvas,
+    x1: float,
+    y1: float,
+    x2: float,
+    y2: float,
+    radius: float = 10,
+    **kwargs,
+) -> int:
+    """Draw a rounded rectangle and return its item id."""
+    radius = max(0, min(radius, (x2 - x1) / 2, (y2 - y1) / 2))
+    points = [
+        x1 + radius, y1,
+        x2 - radius, y1,
+        x2, y1,
+        x2, y1 + radius,
+        x2, y2 - radius,
+        x2, y2,
+        x2 - radius, y2,
+        x1 + radius, y2,
+        x1, y2,
+        x1, y2 - radius,
+        x1, y1 + radius,
+        x1, y1,
+    ]
+    return canvas.create_polygon(points, smooth=True, splinesteps=12, **kwargs)
 
-    style.configure(
-        "Enigma.TCombobox",
-        fieldbackground=PANEL_HI,
-        background=PANEL_HI,
-        foreground=TEXT,
-        arrowcolor=TEXT,
-        bordercolor=PANEL_LINE,
-        lightcolor=PANEL_LINE,
-        darkcolor=PANEL_LINE,
-        padding=2,
-    )
-    style.map(
-        "Enigma.TCombobox",
-        fieldbackground=[("readonly", PANEL_HI)],
-        foreground=[("readonly", TEXT)],
-        selectbackground=[("readonly", PANEL_HI)],
-        selectforeground=[("readonly", TEXT)],
-    )
-    style.configure(
-        "Enigma.TEntry",
-        fieldbackground=PANEL_HI,
-        foreground=TEXT,
-        insertcolor=AMBER,
-        bordercolor=PANEL_LINE,
-        lightcolor=PANEL_LINE,
-        darkcolor=PANEL_LINE,
-    )
-    for name in ("Vertical.TScrollbar", "Horizontal.TScrollbar"):
-        style.configure(
-            name,
-            troughcolor=PANEL,
-            background=PANEL_HI,
-            arrowcolor=TEXT_DIM,
-            bordercolor=PANEL,
-            lightcolor=PANEL_HI,
-            darkcolor=PANEL_HI,
+
+def text(
+    canvas: tk.Canvas,
+    x: float,
+    y: float,
+    value: str,
+    font,
+    fill: str = TEXT,
+    anchor: str = "center",
+    **kwargs,
+) -> int:
+    return canvas.create_text(x, y, text=value, font=font, fill=fill, anchor=anchor, **kwargs)
+
+
+def glow_text(
+    canvas: tk.Canvas,
+    x: float,
+    y: float,
+    value: str,
+    font,
+    fill: str = AMBER,
+    halo: str = GLOW,
+    anchor: str = "center",
+) -> list[int]:
+    """Text with a cheap halo: the same string drawn four times, faded."""
+    ids: list[int] = []
+    for dx, dy in ((-1, 0), (1, 0), (0, -1), (0, 1)):
+        ids.append(
+            canvas.create_text(
+                x + dx, y + dy, text=value, font=font, fill=halo, anchor=anchor
+            )
         )
-    return style
+    ids.append(
+        canvas.create_text(x, y, text=value, font=font, fill=fill, anchor=anchor)
+    )
+    return ids
+
+
+def mix(color_a: str, color_b: str, ratio: float) -> str:
+    """Blend two ``#rrggbb`` colours; *ratio* 0 gives *color_a*."""
+    ratio = max(0.0, min(1.0, ratio))
+    a = tuple(int(color_a[i : i + 2], 16) for i in (1, 3, 5))
+    b = tuple(int(color_b[i : i + 2], 16) for i in (1, 3, 5))
+    return "#%02x%02x%02x" % tuple(
+        round(a[i] + (b[i] - a[i]) * ratio) for i in range(3)
+    )
+
+
+def alpha(color: str, ratio: float, over: str = BG) -> str:
+    """Fake transparency by blending *color* into *over*."""
+    return mix(over, color, ratio)

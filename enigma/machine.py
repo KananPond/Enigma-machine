@@ -259,6 +259,29 @@ class EnigmaMachine:
                 result.append(self.press(character))
         return "".join(result)
 
+    # -------------------------------------------------------------- cipher
+    def core_permutation(self) -> list[int]:
+        """Return the permutation of the rotors and the reflector alone.
+
+        The core of the machine - the three rotors and the reflector - is an
+        involution: it is its own inverse, because the reflector turns the
+        current back into the rotor path it came from.  Only the plugboard
+        sits outside of it.
+
+        The decoder uses this to try many plugboard settings without running
+        the whole machine again for every candidate.
+        """
+        permutation = list(range(26))
+        for rotor in reversed(self.rotors):  # right -> left
+            permutation = [rotor.forward(value) for value in permutation]
+        permutation = [
+            letter_to_index(REFLECTORS[self.reflector][value])
+            for value in permutation
+        ]
+        for rotor in self.rotors:  # left -> right
+            permutation = [rotor.reverse(value) for value in permutation]
+        return permutation
+
     # ------------------------------------------------------------- helpers
     def describe(self) -> str:
         """Return a one line summary of the current settings."""

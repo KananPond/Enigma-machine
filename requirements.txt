@@ -1,6 +1,10 @@
-# The simulator runs on the Python standard library only.
-# tkinter (the GUI toolkit) ships with CPython on Windows and macOS.
+# Runtime dependencies.
 #
 #   python -m pip install -r requirements.txt
 #
-# keeps the virtual environment free of third party runtime dependencies.
+# The machine itself, the interface and the language model use the Python
+# standard library only.  numpy is needed by the breaking routines
+# (enigma/crack.py and the rotor sweep of enigma/autosolve.py): the menu
+# attack works on all 26**3 rotor positions at once, which is only practical
+# with an array library.  Without it everything except the "破译" tab works.
+numpy>=1.24

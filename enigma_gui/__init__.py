@@ -1,5 +1,5 @@
-"""Desktop application for the Enigma simulator."""
+"""The desktop interface of the Enigma machine (Tk, no external toolkit)."""
 
-from .app import EnigmaApp, main
+from .app import APP_TITLE, EnigmaApp, main
 
-__all__ = ["EnigmaApp", "main"]
+__all__ = ["APP_TITLE", "EnigmaApp", "main"]

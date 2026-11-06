@@ -1,230 +1,215 @@
-"""Tests for the desktop application.
+"""Tests for the desktop window: the machine, the panels and the jobs.
 
-They drive the real widgets, so they need a display; when one is not
-available the tests are skipped instead of failing.
+The window is a real Tk window, so these tests need a display; on a headless
+machine they are skipped instead of failing.
 """
 
+import time
 import unittest
 
 try:
     import tkinter as tk
 
-    tk.Tk()
-    TK_AVAILABLE = True
+    from enigma_gui.app import EnigmaApp
+    from enigma_gui.theme import Fonts  # noqa: F401  (import check only)
+
+    HAS_TK = True
 except Exception:  # pragma: no cover - depends on the environment
-    TK_AVAILABLE = False
+    HAS_TK = False
 
 
-class _KeyEvent:
-    """Stand-in for the Tk key event."""
+def pump(app, seconds: float = 0.05) -> None:
+    end = time.time() + seconds
+    while time.time() < end:
+        app.update()
+        time.sleep(0.01)
 
-    def __init__(self, char: str, widget) -> None:
-        self.char = char
-        self.widget = widget
+
+def wait_for_job(app, timeout: float = 120.0) -> None:
+    end = time.time() + timeout
+    while app.job is not None and time.time() < end:
+        app.update()
+        time.sleep(0.02)
+    pump(app, 0.3)
 
 
-@unittest.skipUnless(TK_AVAILABLE, "no display available")
-class EnigmaAppTests(unittest.TestCase):
+@unittest.skipUnless(HAS_TK, "Tk is not available")
+class GuiTestCase(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.app = EnigmaApp()
+        cls.app.geometry("1460x920+0+0")
+        cls.app.update()
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.app.destroy()
+
     def setUp(self):
-        from enigma_gui.app import EnigmaApp
+        self.app.apply_key(__import__("enigma").Key())
+        pump(self.app)
 
-        self.app = EnigmaApp()
-        self.app.update()
+    # ------------------------------------------------------------- machine
+    def test_pressing_a_key_steps_the_rotors(self):
+        self.app.press("A")
+        self.assertEqual(self.app.state()["positions"], "AAB")
+        self.assertIsNotNone(self.app.lampboard.lit)
 
-    def tearDown(self):
-        self.app.destroy()
+    def test_a_letter_is_never_enciphered_to_itself(self):
+        for letter in "ABCDEFGHIJKLMNOPQRSTUVWXYZ":
+            self.app.apply_key(self.app.key)
+            self.app.press(letter)
+            self.assertNotEqual(self.app.lampboard.lit, letter)
 
-    # ---------------------------------------------------------- keyboard
-    def test_the_keyboard_binding_is_installed(self):
-        self.assertTrue(self.app.bind("<KeyPress>"))
+    def test_reference_vector(self):
+        self.app.set_direction("encrypt")
+        self.app.msg_input.delete("1.0", "end")
+        self.app.msg_input.insert("1.0", "AAAAA")
+        self.app.run_message()
+        self.assertEqual(self.app.last_output, "BDZGO")
 
-    def test_physical_keyboard_presses_the_machine(self):
-        self.app.focus_force()
-        self.app.update()
-        self.app.event_generate("<KeyPress>", keysym="a")
-        self.app.update()
-        self.assertEqual(self.app._keyed_output, ["B"])
-        self.assertEqual(self.app.machine.positions, "AAB")
+    def test_encrypting_then_decrypting_returns_the_message(self):
+        self.app.set_direction("encrypt")
+        self.app.msg_input.delete("1.0", "end")
+        self.app.msg_input.insert("1.0", "ATTACK AT DAWN")
+        self.app.run_message()
+        cipher = self.app.last_output
 
-    def test_physical_keyboard_is_case_insensitive(self):
-        self.app.focus_force()
-        self.app.update()
-        self.app.event_generate("<KeyPress>", keysym="A")
-        self.app.update()
-        self.assertEqual(len(self.app._keyed_output), 1)
+        self.app.set_direction("decrypt")
+        self.app.msg_input.delete("1.0", "end")
+        self.app.msg_input.insert("1.0", cipher)
+        self.app.run_message()
+        self.assertIn("ATTACKXATXDAWN", self.app.last_output)
 
-    def test_several_keys_advance_the_machine(self):
-        self.app.focus_force()
-        self.app.update()
-        for keysym in ("a", "b", "c"):
-            self.app.event_generate("<KeyPress>", keysym=keysym)
-            self.app.update()
-        self.assertEqual(self.app._keyed_output, ["B", "J", "E"])
+    def test_rotor_change_swaps_a_duplicate(self):
+        self.app.on_rotor(0, "II")  # II is already in the middle
+        self.assertEqual(sorted(self.app.state()["rotors"]), ["I", "II", "III"])
+        self.assertEqual(len(set(self.app.state()["rotors"])), 3)
 
-    def test_non_letters_do_not_press_the_keys(self):
-        self.app._on_physical_key(_KeyEvent("1", self.app))
-        self.app._on_physical_key(_KeyEvent("", self.app))
-        self.assertEqual(self.app._keyed_output, [])
+    def test_window_and_ring_steppers(self):
+        self.app.on_window(0, 1)
+        self.assertEqual(self.app.state()["positions"][0], "B")
+        self.app.on_ring(2, 1)
+        self.assertEqual(self.app.state()["rings"][2], "B")
 
-    def test_typing_in_the_message_field_does_not_press_the_keys(self):
-        self.app.plain_text.focus_set()
-        self.app._on_physical_key(_KeyEvent("H", self.app.plain_text))
-        self.assertEqual(self.app._keyed_output, [])
+    # ----------------------------------------------------------- plugboard
+    def test_sockets_connect_and_disconnect(self):
+        self.app.on_socket("A")
+        self.app.on_socket("V")
+        self.assertEqual(self.app.state()["plugboard"], "AV")
 
-    def test_clicking_a_key_presses_it(self):
-        self.app.keyboard._keys["Q"].invoke()
-        self.app.update()
-        self.assertEqual(len(self.app._keyed_output), 1)
+        self.app.on_socket("A")  # clicking a plugged letter pulls the cable
+        self.assertEqual(self.app.state()["plugboard"], "")
 
-    # --------------------------------------------------------- messaging
-    def _run_job(self):
-        """Let the chunked job finish."""
-        for _ in range(2000):
-            self.app.update()
-            if self.app._job is None:
-                break
+    def test_a_letter_cannot_take_two_cables(self):
+        # clicking a plugged letter always pulls its cable first, so the
+        # conflict has to come in through the text field
+        self.app.on_socket("A")
+        self.app.on_socket("V")
+        self.app.plug_entry.delete(0, "end")
+        self.app.plug_entry.insert(0, "AB AC")
+        self.app.apply_plugboard_text()
+        self.assertEqual(self.app.state()["plugboard"], "AV")
 
-    def test_message_is_prepared_and_enciphered(self):
-        self.app.plain_text.insert("1.0", "ATTACK AT DAWN")
-        self.app._encrypt_message()
-        self._run_job()
+    def test_plugboard_text_is_applied(self):
+        self.app.plug_entry.delete(0, "end")
+        self.app.plug_entry.insert(0, "AV BS CG")
+        self.app.apply_plugboard_text()
+        self.assertEqual(self.app.state()["cables"], 3)
 
-        prepared = self.app.prepared_text.get("1.0", "end").strip()
-        self.assertEqual(prepared, "ATTACKXATXDAWN")
-        cipher = self.app.cipher_text.get("1.0", "end").strip()
-        # 12 letters plus the two spaces that became the substitute letter
-        self.assertEqual(len(cipher), 14)
-        self.assertTrue(cipher.isalpha())
+    def test_a_bad_plugboard_says_so(self):
+        self.app.plug_entry.delete(0, "end")
+        self.app.plug_entry.insert(0, "AV A")
+        self.app.apply_plugboard_text()
+        self.assertEqual(self.app.state()["cables"], 0)
 
-    def test_numbers_are_written_out(self):
-        self.app.plain_text.insert("1.0", "1932")
-        self.app._encrypt_message()
-        self._run_job()
-        self.assertEqual(
-            self.app.prepared_text.get("1.0", "end").strip(), "NINETEENXTHIRTYXTWO"
-        )
+    def test_clear_plugboard(self):
+        self.app.rebuild(plugboard="AV BS")
+        self.app.clear_plugboard()
+        self.assertEqual(self.app.state()["plugboard"], "")
 
-    def test_long_numbers_are_kept_exact(self):
-        self.app.plain_text.insert("1.0", "48152")
-        self.app._encrypt_message()
-        self._run_job()
-        self.assertEqual(
-            self.app.prepared_text.get("1.0", "end").strip(), "FOUREIGHTONEFIVETWO"
-        )
+    # --------------------------------------------------------------- tabs
+    def test_tabs_switch(self):
+        self.app.switch_tab("break")
+        self.assertTrue(self.app.panels["break"].winfo_ismapped())
+        self.app.switch_tab("message")
+        self.assertFalse(self.app.panels["break"].winfo_ismapped())
 
-    def test_batch_splits_on_blank_lines(self):
-        self.app.split_messages.set(True)
-        self.app.plain_text.insert("1.0", "AAAA\n\nBBBB")
-        self.app._encrypt_message()
-        self._run_job()
-        cipher = self.app.cipher_text.get("1.0", "end").strip()
-        self.assertEqual(len(cipher.split("\n\n")), 2)
+    # ------------------------------------------------------------- decode
+    def test_decode_panel_restores_words(self):
+        self.app.apply_key(self.app.key.with_(positions="AAA", plugboard="AV BS CG"))
+        self.app.set_direction("encrypt")
+        self.app.msg_input.delete("1.0", "end")
+        self.app.msg_input.insert("1.0", "ATTACK AT DAWN")
+        self.app.run_message()
+        cipher = self.app.last_output
 
-    def test_batch_can_restart_the_rotors(self):
-        self.app.split_messages.set(True)
-        self.app.restart_rotors.set(True)
-        self.app.plain_text.insert("1.0", "AAAA\n\nAAAA")
-        self.app._encrypt_message()
-        self._run_job()
-        cipher = self.app.cipher_text.get("1.0", "end").strip()
-        first, second = cipher.split("\n\n")
-        # with the rotors restarted both blocks are enciphered identically
-        self.assertEqual(first, second)
+        self.app.dec_input.delete("1.0", "end")
+        self.app.dec_input.insert("1.0", cipher)
+        self.app.run_decode()
+        pump(self.app, 0.2)
+        self.assertIn("ATTACK", self.app.dec_output.get("1.0", "end"))
 
-    def test_long_text_is_processed_in_chunks(self):
-        self.app.plain_text.insert("1.0", "ATTACK " * 2000)
-        self.app._encrypt_message()
-        self._run_job()
-        cipher = self.app.cipher_text.get("1.0", "end").strip()
-        # 2000 times "ATTACK" plus the space that stands in for each blank
-        self.assertEqual(len(cipher), 14000)
-        self.assertIn("字母", self.app.stats_label.cget("text"))
+    # -------------------------------------------------------------- break
+    def test_breaking_the_training_message(self):
+        from enigma.samples import get
 
-    def test_group_in_fives(self):
-        self.app.plain_text.insert("1.0", "ATTACKATDAWN")
-        self.app._encrypt_message()
-        self._run_job()
-        self.app._group_message()
-        grouped = self.app.cipher_text.get("1.0", "end").strip()
-        self.assertEqual(len(grouped.split()), 3)
+        sample = get("training")
+        self.app.switch_tab("break")
+        self.app.brk_input.delete("1.0", "end")
+        self.app.brk_input.insert("1.0", sample.ciphertext)
+        self.app.brk_crib.delete(0, "end")
+        self.app.brk_crib.insert(0, "ATTACK AT DAWN")
+        self.app.brk_offset.delete(0, "end")
+        self.app.brk_offset.insert(0, "0")
+        self.app.brk_rings.delete(0, "end")
+        self.app.brk_rings.insert(0, "AAA")
+        self.app.choice_scope.value = "quick"
 
-    def test_plugboard_round_trip_through_the_gui(self):
-        self.app._plug_changed("A", "V")
-        self.app.update()
-        self.assertEqual(self.app.machine.plugboard.paired_with("A"), "V")
-        self.assertIn("AV", self.app.plug_summary.cget("text"))
+        self.app.run_break()
+        wait_for_job(self.app, timeout=90)
+        self.assertIsNotNone(self.app.break_result)
+        self.assertIn("I-II-III", self.app.brk_key.cget("text"))
+        self.assertIn("ATTACK", self.app.brk_text.get("1.0", "end"))
 
-    def test_positions_can_be_reset(self):
-        self.app._position_set(2, "Q")
-        self.app.update()
-        self.assertEqual(self.app.machine.positions, "AAQ")
-        self.app._reset_positions()
-        self.app.update()
-        self.assertEqual(self.app.machine.positions, "AAA")
-        self.assertEqual(self.app.rotor_controls[2].position_entry.get(), "A")
+    def test_a_short_ciphertext_is_refused(self):
+        self.app.brk_input.delete("1.0", "end")
+        self.app.brk_input.insert("1.0", "ABC")
+        self.app.run_break()
+        self.assertIsNone(self.app.job)
 
-    def test_duplicate_rotor_swaps(self):
-        # "IV" is not in the machine yet, so it is simply fitted
-        self.app._rotor_changed(1, "IV")
-        self.app.update()
-        self.assertEqual(self.app.machine.rotor_names, ("I", "IV", "III"))
-        # now "IV" is already installed: choosing it again swaps the wheels
-        self.app._rotor_changed(0, "IV")
-        self.app.update()
-        self.assertEqual(self.app.machine.rotor_names, ("IV", "I", "III"))
+    # ------------------------------------------------------------ keycard
+    def test_sample_loads_into_the_break_panel(self):
+        from enigma.samples import get
+        from enigma_gui import app as app_module
 
-    # ------------------------------------------------------- 便于操作的接口
-    def test_ring_setting_can_be_typed(self):
-        self.app._ring_set(1, "L")
-        self.app.update()
-        self.assertEqual(self.app.machine.ring_settings, "ALA")
-        self.assertEqual(self.app.rotor_controls[1].ring_entry.get(), "L")
+        sample = get("africa")
+        window = tk.Toplevel(self.app)
+        asked = {}
 
-    def test_position_can_be_typed(self):
-        self.app._position_set(2, "Q")
-        self.app.update()
-        self.assertEqual(self.app.machine.positions, "AAQ")
-        self.assertEqual(self.app.rotor_controls[2].position_entry.get(), "Q")
+        def fake_ask(title, message):
+            asked["title"] = title
+            return False
 
-    def test_plugboard_pairs_can_be_typed(self):
-        self.app.plug_entry.insert(0, "AV BS")
-        self.app._apply_plug_text()
-        self.app.update()
-        self.assertEqual(self.app.machine.plugboard.describe(), "AV BS")
-        self.assertEqual(self.app.machine.plugboard.paired_with("A"), "V")
+        original = app_module.messagebox.askyesno
+        app_module.messagebox.askyesno = fake_ask
+        try:
+            self.app._load_sample(sample, window)
+        finally:
+            app_module.messagebox.askyesno = original
 
-    def test_plugboard_entry_shows_the_current_wiring(self):
-        self.app._plug_changed("A", "V")
-        self.app.update()
-        self.assertEqual(self.app.plug_entry.get(), "AV")
+        self.assertIn("载入示例", asked.get("title", ""))
+        self.assertIn(sample.ciphertext[:10], self.app.brk_input.get("1.0", "end"))
+        self.assertIn(sample.key.rings, self.app.brk_rings.get())
 
-    def test_help_window_opens(self):
-        import tkinter as tk
+    def test_random_key_is_applied(self):
+        from enigma.keys import Key
+        from enigma.plugboard import Plugboard
 
-        self.app._show_help()
-        self.app.update()
-        windows = [
-            child
-            for child in self.app.winfo_children()
-            if isinstance(child, tk.Toplevel)
-        ]
-        self.assertTrue(windows)
-        for window in windows:
-            window.destroy()
-
-    def test_interface_is_in_chinese(self):
-        titles = []
-        for widget in self.app.winfo_children():
-            pass
-        # the machine settings panel carries a Chinese title
-        self.assertIn(
-            "反射器",
-            " ".join(
-                str(widget.cget("text"))
-                for widget in self.app.winfo_children()
-                if "text" in widget.keys()
-            ),
-        )
+        key = Key.random(cables=Plugboard.MAX_PAIRS)
+        self.app.apply_key(key)
+        self.assertEqual(self.app.state()["cables"], 10)
+        self.assertEqual(self.app.state()["positions"], key.positions)
 
 
 if __name__ == "__main__":

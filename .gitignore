@@ -17,9 +17,15 @@ env/
 .ruff_cache/
 .coverage
 htmlcov/
+tools/.cache/
+tools/.*.log
+tools/.testlog.txt
 
 # Editors and OS
 .idea/
 .vscode/
 .DS_Store
 Thumbs.db
+
+# 编辑器/助手的工作目录
+.workbuddy/

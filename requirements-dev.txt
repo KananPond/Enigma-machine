@@ -3,4 +3,6 @@
 #
 #   python -m unittest discover -s tests
 #
+# tools/ui_smoke.py drives a headless Edge over the DevTools protocol and
+# needs nothing beyond the standard library.
 pytest>=8.0
